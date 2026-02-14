@@ -68,6 +68,7 @@ from .filters import ProductFilter, OrderFilter
 from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework.pagination import PageNumberPagination
 from .pagination import StandardResultsSetPagination
+from decimal import Decimal
 
 
 class CustomerRegistrationView(APIView):
