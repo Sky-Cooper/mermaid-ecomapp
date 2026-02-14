@@ -32,6 +32,7 @@ from .views import (
     NotificationListView,
     MarkNotificationReadView,
     SubCategoryListView,
+    ProductReviewListView,
 )
 
 # 1. Setup Router for ViewSets
@@ -81,6 +82,11 @@ urlpatterns = [
     path("products/review/", ProductReviewCreateView.as_view(), name="product-review"),
     # Product Detail (Catches everything else, so keep it last in this section)
     path("products/<slug:slug>/", ProductDetailView.as_view(), name="product-detail"),
+    path(
+        "products/<slug:slug>/reviews/",
+        ProductReviewListView.as_view(),
+        name="product-reviews",
+    ),
     # ==============================
     # 4. Wishlist
     # ==============================

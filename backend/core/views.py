@@ -10,6 +10,7 @@ from rest_framework.generics import (
     CreateAPIView,
     ListCreateAPIView,
 )
+from datetime import timedelta
 from rest_framework.viewsets import ModelViewSet, ReadOnlyModelViewSet
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
@@ -300,11 +301,13 @@ class ProductReviewCreateView(CreateAPIView):
         user = self.request.user
         product_id = self.request.data.get("product")
 
-        # 1. Check if User already reviewed this product
+        # 1. Protection: Prevent Double Reviews
+        # A user can only review a product ONCE in their lifetime.
         if ProductReview.objects.filter(user=user, product_id=product_id).exists():
             raise serializers.ValidationError("You have already reviewed this product.")
 
-        # 2. Check if User has purchased and received the product
+        # 2. Protection: Verified Purchase Only
+        # User must have an order that is 'DELIVERED' containing this product.
         has_purchased = Order.objects.filter(
             user=user,
             status=OrderStatus.DELIVERED,
@@ -313,10 +316,31 @@ class ProductReviewCreateView(CreateAPIView):
 
         if not has_purchased:
             raise serializers.ValidationError(
-                "You can only review products you have purchased and received."
+                "Verified Purchase Required: You can only review products you have bought and received."
             )
 
         serializer.save(user=user)
+
+
+class ProductReviewListView(ListAPIView):
+    serializer_class = ProductReviewSerializer
+    permission_classes = [AllowAny]
+    pagination_class = StandardResultsSetPagination  # your pagination
+
+    # allow sorting
+    filter_backends = [filters.OrderingFilter]
+    ordering_fields = ["created_at", "rating"]
+    ordering = ["-created_at"]
+
+    def get_queryset(self):
+        product_slug = self.kwargs["slug"]
+        product = get_object_or_404(Product, slug=product_slug, is_active=True)
+
+        return (
+            ProductReview.objects.filter(product=product)
+            .select_related("user")
+            .order_by(*self.ordering)
+        )
 
 
 class TopProductsView(ListAPIView):
@@ -541,21 +565,44 @@ class OrderViewSet(ModelViewSet):
 
     @transaction.atomic
     def create(self, request, *args, **kwargs):
-        # 1. Get Cart
         cart = ShoppingCart.objects.filter(user=request.user).first()
         if not cart or not cart.cart_items.exists():
             return Response(
                 {"error": "Cart is empty"}, status=status.HTTP_400_BAD_REQUEST
             )
 
-        # 2. Serialize Order Data (Address, etc)
+        undelivered_statuses = [
+            OrderStatus.PENDING,
+            OrderStatus.PROCESSING,
+            OrderStatus.SHIPPED,
+        ]
+
+        last_month = timezone.now() - timedelta(days=30)
+
+        active_orders_count = Order.objects.filter(
+            user=request.user,
+            status__in=undelivered_statuses,
+            created_at__gte=last_month,
+        ).count()
+
+        if active_orders_count >= 3:
+            return Response(
+                {
+                    "error": "Order Limit Reached. You have 3 pending orders. "
+                    "Please wait for them to be delivered before placing a new one."
+                },
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
+        # -----------------------------------------------------------
+
+        # 2. Serialize Order Data
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
         # 3. Create Order Instance
         order = serializer.save(user=request.user)
 
-        # 4. Handle Coupon (Optional)
+        # 4. Handle Coupon
         coupon_code = request.data.get("coupon_code")
         if coupon_code:
             coupon = Coupon.objects.filter(
@@ -573,37 +620,32 @@ class OrderViewSet(ModelViewSet):
         order_items = []
 
         for item in cart.cart_items.select_related("product"):
-            # 1) Find & LOCK the matching variant
+            # Find & LOCK the matching variant
             variant_qs = ProductVariant.objects.select_for_update().filter(
                 product=item.product
             )
 
             if item.size:
                 variant_qs = variant_qs.filter(size__value=item.size)
-
             if item.color:
                 variant_qs = variant_qs.filter(color=item.color)
 
             variant = variant_qs.first()
 
-            # If product uses variants, ensure the variant exists
+            # Check Stock
             if item.size or item.color:
                 if not variant:
-                    raise ValidationError(
-                        f"Variant not found for {item.product.title} ({item.size}/{item.color})."
-                    )
-
+                    raise ValidationError(f"Variant not found: {item.product.title}")
                 if variant.quantity < item.quantity:
-                    raise ValidationError(
-                        f"Only {variant.quantity} left for {item.product.title} ({item.size}/{item.color})."
-                    )
+                    raise ValidationError(f"Out of stock: {item.product.title}")
 
-                # 2) Decrement inventory
+                # Decrement inventory
                 variant.quantity -= item.quantity
                 variant.save()
 
-            # 3) Create order items as usual
+            # Add price
             total_amount += item.get_total_item_price()
+
             order_items.append(
                 OrderItem(
                     order=order,
