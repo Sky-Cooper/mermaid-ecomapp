@@ -21,6 +21,8 @@ from django_filters.rest_framework import DjangoFilterBackend
 from allauth.socialaccount.providers.google.views import GoogleOAuth2Adapter
 from allauth.socialaccount.providers.oauth2.client import OAuth2Client
 from dj_rest_auth.registration.views import SocialLoginView
+from rest_framework_simplejwt.tokens import RefreshToken
+from django.db.models import Avg, Prefetch, Sum, Count
 
 # Local Imports
 from .models import (
@@ -39,6 +41,8 @@ from .models import (
     Coupon,
     Notification,
     OrderStatus,
+    Attribute,
+    ProductVariant,  # <--- Added
 )
 from .serializers import (
     CustomerRegistrationSerializer,
@@ -56,17 +60,17 @@ from .serializers import (
     OrderReadSerializer,
     OrderCreateSerializer,
     NotificationSerializer,
+    AttributeSerializer,  # <--- Added
 )
 from .filters import ProductFilter, OrderFilter
-
-
-# ==========================================
-# 1. AUTHENTICATION VIEWS
-# ==========================================
+from rest_framework.parsers import MultiPartParser, FormParser
+from rest_framework.pagination import PageNumberPagination
+from .pagination import StandardResultsSetPagination
 
 
 class CustomerRegistrationView(APIView):
     permission_classes = [AllowAny]
+    parser_classes = [MultiPartParser, FormParser]
 
     def post(self, request):
         serializer = CustomerRegistrationSerializer(data=request.data)
@@ -99,7 +103,7 @@ class CustomTokenObtainPairView(TokenObtainPairView):
             response.set_cookie(
                 key="access_token",
                 value=access,
-                httponly=False,
+                httponly=True,
                 secure=not settings.DEBUG,
                 samesite="Lax",
             )
@@ -111,26 +115,49 @@ class CookieTokenRefreshView(TokenRefreshView):
         refresh_token = request.data.get("refresh") or request.COOKIES.get(
             "refresh_token"
         )
-        if not refresh_token:
-            return Response({"detail": "Refresh token not provided"}, status=401)
 
-        data = {"refresh": refresh_token}
-        serializer = self.get_serializer(data=data)
+        if not refresh_token:
+            return Response(
+                {"detail": "Refresh token not provided"},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
 
         try:
-            serializer.is_valid(raise_exception=True)
-        except Exception:
-            return Response({"detail": "Token is invalid or expired"}, status=401)
+            refresh = RefreshToken(refresh_token)
+            access_token = str(refresh.access_token)
 
-        access_token = serializer.validated_data["access"]
-        response = Response({"access": access_token}, status=200)
+            # Get user from token
+            user_id = refresh["user_id"]
+            user = User.objects.get(id=user_id)
+
+        except Exception:
+            return Response(
+                {"detail": "Token is invalid or expired"},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+
+        response = Response(
+            {
+                "access": access_token,
+                "user_id": user.id,
+                "email": user.email,
+                "full_name": user.get_full_name(),
+                "role": user.role,
+                "profile_image": (
+                    user.profile_image.url if user.profile_image else None
+                ),
+            },
+            status=status.HTTP_200_OK,
+        )
+
         response.set_cookie(
             key="access_token",
             value=access_token,
-            httponly=False,
+            httponly=True,
             secure=not settings.DEBUG,
             samesite="Lax",
         )
+
         return response
 
 
@@ -188,7 +215,6 @@ class StoreProfileView(RetrieveAPIView):
     permission_classes = [AllowAny]
 
     def get_object(self):
-        # Always return the first store profile
         return StoreProfile.objects.first()
 
 
@@ -203,12 +229,18 @@ class CategoryListView(ListAPIView):
     permission_classes = [AllowAny]
 
 
-class ProductListView(ListAPIView):
+# --- NEW: ATTRIBUTE VIEW ---
+class AttributeListView(ListAPIView):
     """
-    List products with Filtering, Searching, and Sorting.
+    Returns available attributes (Sizes, Colors, etc.) so frontend can build filters.
     """
 
-    queryset = Product.objects.filter(is_active=True)
+    queryset = Attribute.objects.all().prefetch_related("values")
+    serializer_class = AttributeSerializer
+    permission_classes = [AllowAny]
+
+
+class ProductListView(ListAPIView):
     serializer_class = ProductListSerializer
     permission_classes = [AllowAny]
 
@@ -218,8 +250,23 @@ class ProductListView(ListAPIView):
         filters.OrderingFilter,
     ]
     filterset_class = ProductFilter
-    search_fields = ["title", "description", "sku"]
-    ordering_fields = ["price", "created_at"]
+    search_fields = ["title", "short_description", "description", "sku", "tags__name"]
+
+    ordering_fields = [
+        "price",
+        "created_at",
+        "discount_percentage",
+        "avg_rating",  # annotated
+    ]
+    ordering = ["-created_at"]  # default
+
+    def get_queryset(self):
+        return (
+            Product.objects.filter(is_active=True)
+            .select_related("sub_category", "sub_category__category")
+            .prefetch_related("variants", "images", "tags")
+            .annotate(avg_rating=Avg("reviews__rating"))
+        )
 
 
 class ProductDetailView(RetrieveAPIView):
@@ -241,11 +288,10 @@ class ProductReviewCreateView(CreateAPIView):
         if ProductReview.objects.filter(user=user, product_id=product_id).exists():
             raise serializers.ValidationError("You have already reviewed this product.")
 
-        # 2. Check if User has actually purchased (and received) the product
-        # We look for an Order that is DELIVERED and contains this product
+        # 2. Check if User has purchased and received the product
         has_purchased = Order.objects.filter(
             user=user,
-            status=OrderStatus.DELIVERED,  # Only allow review if delivered
+            status=OrderStatus.DELIVERED,
             items__product_id=product_id,
         ).exists()
 
@@ -255,6 +301,92 @@ class ProductReviewCreateView(CreateAPIView):
             )
 
         serializer.save(user=user)
+
+
+class TopProductsView(ListAPIView):
+    """
+    /products/top/?category=...&sub_category=...
+    Defaults to page_size=10.
+    """
+
+    serializer_class = ProductListSerializer
+    permission_classes = [AllowAny]
+    pagination_class = StandardResultsSetPagination
+
+    def get_queryset(self):
+        qs = (
+            Product.objects.filter(is_active=True)
+            .select_related("sub_category", "sub_category__category")
+            .annotate(total_sold=Sum("orderitem__quantity"))
+            .order_by("-total_sold", "-created_at")
+        )
+
+        category = self.request.query_params.get("category")
+        sub_category = self.request.query_params.get("sub_category")
+
+        if category:
+            qs = qs.filter(sub_category__category__slug__iexact=category)
+        if sub_category:
+            qs = qs.filter(sub_category__slug__iexact=sub_category)
+
+        return qs
+
+    def list(self, request, *args, **kwargs):
+        # Default to 10 for this endpoint
+        if "page_size" not in request.query_params:
+            request.query_params._mutable = True
+            request.query_params["page_size"] = "10"
+            request.query_params._mutable = False
+        return super().list(request, *args, **kwargs)
+
+
+class BestRatedProductsView(ListAPIView):
+    """
+    /products/best-rated/?category=...&sub_category=...
+    Orders by avg_rating, tie-break by review_count.
+    """
+
+    serializer_class = ProductListSerializer
+    permission_classes = [AllowAny]
+    pagination_class = StandardResultsSetPagination
+
+    def get_queryset(self):
+        qs = (
+            Product.objects.filter(is_active=True)
+            .select_related("sub_category", "sub_category__category")
+            .annotate(avg_rating=Avg("reviews__rating"), review_count=Count("reviews"))
+            .order_by("-avg_rating", "-review_count", "-created_at")
+        )
+
+        category = self.request.query_params.get("category")
+        sub_category = self.request.query_params.get("sub_category")
+
+        if category:
+            qs = qs.filter(sub_category__category__slug__iexact=category)
+        if sub_category:
+            qs = qs.filter(sub_category__slug__iexact=sub_category)
+
+        return qs
+
+
+class NewArrivalsView(ListAPIView):
+    """
+    /products/new/
+    """
+
+    serializer_class = ProductListSerializer
+    permission_classes = [AllowAny]
+    pagination_class = StandardResultsSetPagination
+
+    def get_queryset(self):
+        qs = Product.objects.filter(is_active=True).order_by("-created_at")
+        category = self.request.query_params.get("category")
+        sub_category = self.request.query_params.get("sub_category")
+        if category:
+            qs = qs.filter(sub_category__category__slug__iexact=category)
+        if sub_category:
+            qs = qs.filter(sub_category__slug__iexact=sub_category)
+        return qs
 
 
 # ==========================================
@@ -338,13 +470,27 @@ class CartItemViewSet(ModelViewSet):
         color = serializer.validated_data.get("color")
         quantity = serializer.validated_data["quantity"]
 
-        # Check for existing item with same attributes
+        # Check for existing item with same attributes (size/color strings)
         existing_item = CartItem.objects.filter(
             cart=cart, product=product, size=size, color=color
         ).first()
 
         if existing_item:
-            existing_item.quantity += quantity
+            new_qty = existing_item.quantity + quantity
+
+            variant_qs = ProductVariant.objects.filter(product=product)
+            if size:
+                variant_qs = variant_qs.filter(size__value=size)
+            if color:
+                variant_qs = variant_qs.filter(color=color)
+
+            variant = variant_qs.first()
+            if (size or color) and variant and variant.quantity < new_qty:
+                raise ValidationError(
+                    f"Only {variant.quantity} left for this option. You already have {existing_item.quantity} in cart."
+                )
+
+            existing_item.quantity = new_qty
             existing_item.save()
             return Response(
                 self.get_serializer(existing_item).data, status=status.HTTP_200_OK
@@ -379,14 +525,6 @@ class OrderViewSet(ModelViewSet):
 
     @transaction.atomic
     def create(self, request, *args, **kwargs):
-        """
-        Custom Checkout Logic:
-        1. Get Cart
-        2. Validate Cart is not empty
-        3. Create Order
-        4. Move CartItems -> OrderItems
-        5. Clear Cart
-        """
         # 1. Get Cart
         cart = ShoppingCart.objects.filter(user=request.user).first()
         if not cart or not cart.cart_items.exists():
@@ -415,30 +553,61 @@ class OrderViewSet(ModelViewSet):
                 order.save()
 
         # 5. Move Items & Calculate Total
-        total_amount = 0
+        total_amount = Decimal("0.00")
         order_items = []
 
-        for item in cart.cart_items.all():
-            if item.product.in_stock:
-                total_amount += item.get_total_item_price()
-                order_items.append(
-                    OrderItem(
-                        order=order,
-                        product=item.product,
-                        product_name=item.product.title,
-                        product_price=item.product.price,
-                        size=item.size,
-                        color=item.color,
-                        quantity=item.quantity,
+        for item in cart.cart_items.select_related("product"):
+            # 1) Find & LOCK the matching variant
+            variant_qs = ProductVariant.objects.select_for_update().filter(
+                product=item.product
+            )
+
+            if item.size:
+                variant_qs = variant_qs.filter(size__value=item.size)
+
+            if item.color:
+                variant_qs = variant_qs.filter(color=item.color)
+
+            variant = variant_qs.first()
+
+            # If product uses variants, ensure the variant exists
+            if item.size or item.color:
+                if not variant:
+                    raise ValidationError(
+                        f"Variant not found for {item.product.title} ({item.size}/{item.color})."
                     )
+
+                if variant.quantity < item.quantity:
+                    raise ValidationError(
+                        f"Only {variant.quantity} left for {item.product.title} ({item.size}/{item.color})."
+                    )
+
+                # 2) Decrement inventory
+                variant.quantity -= item.quantity
+                variant.save()
+
+            # 3) Create order items as usual
+            total_amount += item.get_total_item_price()
+            order_items.append(
+                OrderItem(
+                    order=order,
+                    product=item.product,
+                    product_name=item.product.title,
+                    product_price=item.product.price,
+                    size=item.size,
+                    color=item.color,
+                    quantity=item.quantity,
                 )
+            )
 
         OrderItem.objects.bulk_create(order_items)
 
         # Apply Discount
         if order.coupon:
-            discount = (total_amount * order.coupon.discount_percentage) / 100
-            total_amount -= discount
+            discount = (
+                total_amount * Decimal(order.coupon.discount_percentage)
+            ) / Decimal("100")
+            total_amount = total_amount - discount
 
         order.total_amount = total_amount
         order.save()

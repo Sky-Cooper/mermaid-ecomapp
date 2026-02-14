@@ -13,11 +13,9 @@ from taggit.managers import TaggableManager
 from django.contrib.auth.models import (
     Group,
     Permission,
-)  # Requires: pip install django-taggit
-
-# ==========================================
-# 1. ENUMS & CHOICES
-# ==========================================
+)
+from decimal import Decimal, ROUND_HALF_UP
+from .helpers import unique_slugify
 
 
 class LanguageChoices(models.TextChoices):
@@ -52,25 +50,6 @@ class PaymentMethod(models.TextChoices):
 class AddressType(models.TextChoices):
     HOME = "HOME", "Home"
     OFFICE = "OFFICE", "Office"
-
-
-class SizeChoices(models.TextChoices):
-    # Clothing
-    XS = "XS", "XS"
-    S = "S", "S"
-    M = "M", "M"
-    L = "L", "L"
-    XL = "XL", "XL"
-    XXL = "XXL", "XXL"
-    # Shoes (European Sizes)
-    SZ_36 = "36", "36"
-    SZ_37 = "37", "37"
-    SZ_38 = "38", "38"
-    SZ_39 = "39", "39"
-    SZ_40 = "40", "40"
-    SZ_41 = "41", "41"
-    # Makeup / Accessories
-    ONE_SIZE = "OS", "One Size"
 
 
 class ColorChoices(models.TextChoices):
@@ -284,6 +263,7 @@ class Product(models.Model):
         max_digits=10, decimal_places=2, null=True, blank=True
     )
     discount_percentage = models.PositiveIntegerField(default=0)
+    specifications = models.JSONField(default=dict, blank=True)
 
     # Status
     in_stock = models.BooleanField(default=True)
@@ -300,14 +280,16 @@ class Product(models.Model):
     def save(self, *args, **kwargs):
         # Auto-calculate discount
         if self.old_price and self.old_price > self.price:
-            discount = self.old_price - self.price
-            self.discount_percentage = round((discount / self.old_price) * 100)
+            discount = (self.old_price - self.price) / self.old_price * Decimal("100")
+            self.discount_percentage = int(
+                discount.quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+            )
         else:
             self.discount_percentage = 0
 
         # Auto-slug if missing
         if not self.slug:
-            self.slug = slugify(self.title)
+            self.slug = unique_slugify(self, self.title)
 
         super().save(*args, **kwargs)
 
@@ -326,23 +308,51 @@ class ProductImage(models.Model):
         return f"Img for {self.product.title}"
 
 
-class ProductVariant(models.Model):
+class Attribute(models.Model):
     """
-    Manages Inventory per Size/Color.
-    Example:
-    - Heels Red Size 38 (Qty: 5)
-    - Heels Red Size 39 (Qty: 0)
+    Defines the TYPE of variation.
+    e.g., "Size", "Color", "Shoe Size", "Ring Size"
     """
 
+    code = models.CharField(max_length=30, unique=True)
+    name = models.CharField(max_length=50)  # e.g. "Clothing Size"
+
+    def __str__(self):
+        return self.name
+
+
+class AttributeValue(models.Model):
+    """
+    Defines the specific options.
+    """
+
+    attribute = models.ForeignKey(
+        Attribute, on_delete=models.CASCADE, related_name="values"
+    )
+    value = models.CharField(max_length=50)  # e.g. "XL", "Red", "38"
+
+    def __str__(self):
+        return f"{self.attribute.name}: {self.value}"
+
+
+class ProductVariant(models.Model):
     product = models.ForeignKey(
         Product, on_delete=models.CASCADE, related_name="variants"
     )
-    size = models.CharField(
-        max_length=20, choices=SizeChoices.choices, default=SizeChoices.ONE_SIZE
+    size = models.ForeignKey(
+        AttributeValue,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="variant_sizes",
+        limit_choices_to={
+            "attribute__code__in": ["SIZE", "SHOE_SIZE"]
+        },  # Optional filter
     )
     color = models.CharField(
         max_length=20, choices=ColorChoices.choices, default=ColorChoices.NONE
     )
+    sku_modifier = models.CharField(max_length=50, blank=True, help_text="e.g. -RED-XL")
     quantity = models.PositiveIntegerField(default=0)
 
     class Meta:
@@ -406,9 +416,7 @@ class CartItem(models.Model):
     product = models.ForeignKey(Product, on_delete=models.CASCADE)
 
     # Selected Attributes
-    size = models.CharField(
-        max_length=20, choices=SizeChoices.choices, default=SizeChoices.ONE_SIZE
-    )
+    size = models.CharField(max_length=50, blank=True, null=True)
     color = models.CharField(
         max_length=20, choices=ColorChoices.choices, default=ColorChoices.NONE
     )
@@ -472,7 +480,9 @@ class Order(models.Model):
     is_paid = models.BooleanField(default=False)
 
     # Financials
-    total_amount = models.DecimalField(max_digits=10, decimal_places=2)
+    total_amount = models.DecimalField(
+        max_digits=10, decimal_places=2, default=Decimal("0.00")
+    )
     coupon = models.ForeignKey(Coupon, on_delete=models.SET_NULL, null=True, blank=True)
 
     # Tracking
@@ -503,7 +513,7 @@ class OrderItem(models.Model):
         max_digits=10, decimal_places=2
     )  # Price AT MOMENT of purchase
 
-    size = models.CharField(max_length=20)
+    size = models.CharField(max_length=50, blank=True, null=True)
     color = models.CharField(max_length=20)
     quantity = models.PositiveIntegerField(default=1)
 

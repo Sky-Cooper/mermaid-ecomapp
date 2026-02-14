@@ -13,9 +13,13 @@ from .views import (
     ShippingAddressViewSet,
     # Products
     CategoryListView,
+    AttributeListView,  # <--- Added
     ProductListView,
     ProductDetailView,
     ProductReviewCreateView,
+    TopProductsView,  # <--- Added
+    BestRatedProductsView,  # <--- Added
+    NewArrivalsView,  # <--- Added
     # Wishlist
     WishlistView,
     ToggleWishlistItemView,
@@ -53,10 +57,23 @@ urlpatterns = [
     # ==============================
     # 3. Product Catalog
     # ==============================
+    # Metadata & Filters
     path("products/categories/", CategoryListView.as_view(), name="category-list"),
+    path(
+        "products/attributes/", AttributeListView.as_view(), name="attribute-list"
+    ),  # Used for frontend filters
+    # Specialized Lists (MUST come before <slug:slug>)
+    path("products/trending/", TopProductsView.as_view(), name="product-trending"),
+    path(
+        "products/best-rated/",
+        BestRatedProductsView.as_view(),
+        name="product-best-rated",
+    ),
+    path("products/new/", NewArrivalsView.as_view(), name="product-new"),
+    # General List & Reviews
     path("products/", ProductListView.as_view(), name="product-list"),
     path("products/review/", ProductReviewCreateView.as_view(), name="product-review"),
-    # Put slugs last so they don't catch other paths
+    # Product Detail (Catches everything else, so keep it last in this section)
     path("products/<slug:slug>/", ProductDetailView.as_view(), name="product-detail"),
     # ==============================
     # 4. Wishlist

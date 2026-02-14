@@ -93,9 +93,9 @@ WSGI_APPLICATION = "backend.wsgi.application"
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.postgresql",
-        "NAME": os.getenv("POSTGRES_DB"),
-        "USER": os.getenv("POSTGRES_USER"),
-        "PASSWORD": os.getenv("POSTGRES_PASSWORD"),
+        "NAME": os.getenv("POSTGRES_DB", "mermaid_db"),
+        "USER": os.getenv("POSTGRES_USER", "mermaid_user"),
+        "PASSWORD": os.getenv("POSTGRES_PASSWORD", "mermaid_pass"),
         "HOST": os.getenv("POSTGRES_HOST", "db"),
         "PORT": os.getenv("POSTGRES_PORT", 5432),
     }
@@ -142,10 +142,17 @@ REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
         "rest_framework_simplejwt.authentication.JWTAuthentication",
     ),
+    # keep default authenticated, and override to AllowAny per public views
     "DEFAULT_PERMISSION_CLASSES": ("rest_framework.permissions.IsAuthenticated",),
-    "DEFAULT_FILTER_BACKENDS": [
+    # ✅ filters + search + ordering globally
+    "DEFAULT_FILTER_BACKENDS": (
         "django_filters.rest_framework.DjangoFilterBackend",
-    ],
+        "rest_framework.filters.SearchFilter",
+        "rest_framework.filters.OrderingFilter",
+    ),
+    # ✅ pagination globally
+    "DEFAULT_PAGINATION_CLASS": "core.pagination.StandardResultsSetPagination",
+    "PAGE_SIZE": 12,
 }
 
 
@@ -198,3 +205,18 @@ SOCIALACCOUNT_PROVIDERS = {
 
 
 AUTH_USER_MODEL = "core.User"
+MEDIA_URL = "/media/"
+MEDIA_ROOT = os.path.join(BASE_DIR, "media")
+
+
+# Redis Cache Settings
+CACHES = {
+    "default": {
+        "BACKEND": "django_redis.cache.RedisCache",
+        # Fallback to localhost so it works on Windows
+        "LOCATION": f"redis://{os.getenv('REDIS_HOST', 'localhost')}:6379/1",
+        "OPTIONS": {
+            "CLIENT_CLASS": "django_redis.client.DefaultClient",
+        },
+    }
+}

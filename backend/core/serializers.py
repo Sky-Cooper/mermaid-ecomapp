@@ -11,6 +11,8 @@ from .models import (
     Product,
     ProductImage,
     ProductVariant,
+    Attribute,
+    AttributeValue,
     ProductReview,
     Wishlist,
     ShoppingCart,
@@ -22,7 +24,7 @@ from .models import (
 )
 
 # ==========================================
-# 1. AUTH & USER SERIALIZERS
+# 1. USER & AUTH SERIALIZERS
 # ==========================================
 
 
@@ -39,6 +41,7 @@ class CustomerRegistrationSerializer(serializers.ModelSerializer):
             "password",
             "password_confirm",
             "phone_number",
+            "profile_image",
         )
 
     def validate(self, attrs):
@@ -60,6 +63,7 @@ class CustomerRegistrationSerializer(serializers.ModelSerializer):
             phone_number=validated_data.get("phone_number"),
             role=UserRole.CUSTOMER,
             is_active=True,
+            profile_image=validated_data.get("profile_image"),
         )
         return user
 
@@ -89,10 +93,6 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
 
 
 class UserProfileSerializer(serializers.ModelSerializer):
-    """
-    Used for users to view/update their own profile.
-    """
-
     class Meta:
         model = User
         fields = [
@@ -115,16 +115,11 @@ class ShippingAddressSerializer(serializers.ModelSerializer):
         read_only_fields = ["user"]
 
     def create(self, validated_data):
-        # Auto-assign the user from the request context
         validated_data["user"] = self.context["request"].user
         return super().create(validated_data)
 
 
 class StoreProfileSerializer(serializers.ModelSerializer):
-    """
-    Read-only for customers, Writable for Admin.
-    """
-
     class Meta:
         model = StoreProfile
         fields = "__all__"
@@ -142,7 +137,6 @@ class CategorySerializer(serializers.ModelSerializer):
 
 
 class SubCategorySerializer(serializers.ModelSerializer):
-    # To display the parent category name instead of just ID
     category_title = serializers.ReadOnlyField(source="category.title")
 
     class Meta:
@@ -156,22 +150,43 @@ class ProductImageSerializer(serializers.ModelSerializer):
         fields = ["id", "image", "alt_text"]
 
 
+# --- ATTRIBUTE SERIALIZERS (NEW) ---
+# Needed so the frontend can display filters (e.g. "Size: S, M, L")
+
+
+class AttributeValueSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = AttributeValue
+        fields = ["id", "value"]
+
+
+class AttributeSerializer(serializers.ModelSerializer):
+    values = AttributeValueSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = Attribute
+        fields = ["id", "name", "values"]
+
+
+# --- VARIANT SERIALIZER ---
+
+
 class ProductVariantSerializer(serializers.ModelSerializer):
+    # Flatten the Size object so frontend sees "XL" easily, not just ID 5
+    size_value = serializers.ReadOnlyField(source="size.value")
+
     class Meta:
         model = ProductVariant
-        fields = ["id", "size", "color", "quantity"]
+        fields = ["id", "size", "size_value", "color", "quantity", "sku_modifier"]
 
 
 class ProductListSerializer(serializers.ModelSerializer):
     """
-    Lightweight serializer for listing pages (Grid View).
-    Excludes heavy descriptions and full relationship data.
+    Lightweight serializer for Grid View.
     """
 
     category_title = serializers.ReadOnlyField(source="sub_category.category.title")
     sub_category_title = serializers.ReadOnlyField(source="sub_category.title")
-
-    # Show the first image as the main thumbnail if available
     image = serializers.ImageField(read_only=True)
 
     class Meta:
@@ -193,17 +208,12 @@ class ProductListSerializer(serializers.ModelSerializer):
 
 class ProductDetailSerializer(serializers.ModelSerializer):
     """
-    Heavy serializer for the single product page.
-    Includes images, variants, and tags.
+    Full details including specs and variants.
     """
 
     images = ProductImageSerializer(many=True, read_only=True)
     variants = ProductVariantSerializer(many=True, read_only=True)
-
-    # Return tags as a list of strings
     tags = serializers.SerializerMethodField()
-
-    # Flatten Category Info
     sub_category_details = SubCategorySerializer(source="sub_category", read_only=True)
 
     class Meta:
@@ -218,6 +228,7 @@ class ProductDetailSerializer(serializers.ModelSerializer):
             "price",
             "old_price",
             "discount_percentage",
+            "specifications",  # <--- JSON Field included here
             "in_stock",
             "tags",
             "images",
@@ -264,7 +275,6 @@ class ProductReviewSerializer(serializers.ModelSerializer):
 
 
 class WishlistSerializer(serializers.ModelSerializer):
-    # Nested products so we see what's inside
     products = ProductListSerializer(many=True, read_only=True)
 
     class Meta:
@@ -278,11 +288,6 @@ class WishlistSerializer(serializers.ModelSerializer):
 
 
 class CartItemSerializer(serializers.ModelSerializer):
-    """
-    Serializer for individual items in the cart.
-    We need Read (Nested Product) and Write (Product ID) logic.
-    """
-
     product_details = ProductListSerializer(source="product", read_only=True)
     total_price = serializers.DecimalField(
         max_digits=10, decimal_places=2, source="get_total_item_price", read_only=True
@@ -294,25 +299,61 @@ class CartItemSerializer(serializers.ModelSerializer):
             "id",
             "product",
             "product_details",
-            "size",
-            "color",
+            "size",  # Stores String "XL"
+            "color",  # Stores String "Red"
             "quantity",
             "total_price",
         ]
 
     def validate(self, data):
         """
-        Check stock before adding to cart.
+        Validate stock availability.
+        This is tricky because Cart stores 'strings' but Variants stores 'IDs'.
         """
         product = data.get("product")
         quantity = data.get("quantity")
+        size = data.get("size")  # e.g. "XL"
+        color = data.get("color")  # e.g. "Red"
 
-        # Basic check: Is product in stock?
+        # 1. Basic Product Check
         if product and not product.in_stock:
-            raise serializers.ValidationError(f"{product.title} is out of stock.")
+            raise serializers.ValidationError(
+                f"'{product.title}' is currently out of stock."
+            )
 
-        # Advanced check: Check Variant stock (if specific size/color chosen)
-        # Note: You can expand this based on your exact requirements
+        # 2. Detailed Variant Check
+        # If the user selected a Size or Color, we must check if that specific variant exists and has stock.
+        if size or color:
+            variants = ProductVariant.objects.filter(product=product)
+
+            if size:
+                # We filter by the related AttributeValue's value
+                variants = variants.filter(size__value=size)
+
+            if color:
+                variants = variants.filter(color=color)
+
+            try:
+                variant = variants.get()
+            except ProductVariant.DoesNotExist:
+                raise serializers.ValidationError(
+                    f"This combination ({size}/{color}) is not available."
+                )
+            except ProductVariant.MultipleObjectsReturned:
+                raise serializers.ValidationError(
+                    f"Multiple variants found for ({size}/{color}). Please contact support."
+                )
+
+            if not variant:
+                raise serializers.ValidationError(
+                    f"This combination ({size}/{color}) is not available."
+                )
+
+            if variant.quantity < quantity:
+                raise serializers.ValidationError(
+                    f"Only {variant.quantity} items left for this option."
+                )
+
         return data
 
 
@@ -353,10 +394,6 @@ class OrderItemSerializer(serializers.ModelSerializer):
 
 
 class OrderReadSerializer(serializers.ModelSerializer):
-    """
-    Used when viewing order history.
-    """
-
     items = OrderItemSerializer(many=True, read_only=True)
     coupon_code = serializers.ReadOnlyField(source="coupon.code")
 
@@ -379,11 +416,6 @@ class OrderReadSerializer(serializers.ModelSerializer):
 
 
 class OrderCreateSerializer(serializers.ModelSerializer):
-    """
-    Used when placing an order.
-    The view will handle moving items from Cart to OrderItems.
-    """
-
     coupon_code = serializers.CharField(write_only=True, required=False)
 
     class Meta:
