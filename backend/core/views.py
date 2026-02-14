@@ -60,7 +60,8 @@ from .serializers import (
     OrderReadSerializer,
     OrderCreateSerializer,
     NotificationSerializer,
-    AttributeSerializer,  # <--- Added
+    AttributeSerializer,
+    SubCategorySerializer,
 )
 from .filters import ProductFilter, OrderFilter
 from rest_framework.parsers import MultiPartParser, FormParser
@@ -193,10 +194,6 @@ class UserProfileView(RetrieveUpdateAPIView):
 
 
 class ShippingAddressViewSet(ModelViewSet):
-    """
-    CRUD for User Addresses.
-    Automatically scopes queries to the logged-in user.
-    """
 
     serializer_class = ShippingAddressSerializer
     permission_classes = [IsAuthenticated]
@@ -227,6 +224,25 @@ class CategoryListView(ListAPIView):
     queryset = Category.objects.filter(is_active=True)
     serializer_class = CategorySerializer
     permission_classes = [AllowAny]
+
+
+class SubCategoryListView(ListAPIView):
+
+    serializer_class = SubCategorySerializer
+    permission_classes = [AllowAny]
+
+    def get_queryset(self):
+        qs = (
+            SubCategory.objects.filter(is_active=True, category__is_active=True)
+            .select_related("category")
+            .order_by("category__title", "title")
+        )
+
+        category_slug = self.request.query_params.get("category")
+        if category_slug:
+            qs = qs.filter(category__slug__iexact=category_slug)
+
+        return qs
 
 
 # --- NEW: ATTRIBUTE VIEW ---

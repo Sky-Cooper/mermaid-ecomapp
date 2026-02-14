@@ -138,10 +138,19 @@ class CategorySerializer(serializers.ModelSerializer):
 
 class SubCategorySerializer(serializers.ModelSerializer):
     category_title = serializers.ReadOnlyField(source="category.title")
+    category_slug = serializers.ReadOnlyField(source="category.slug")
 
     class Meta:
         model = SubCategory
-        fields = ["id", "category", "category_title", "title", "slug", "image"]
+        fields = [
+            "id",
+            "category",
+            "category_title",
+            "category_slug",
+            "title",
+            "slug",
+            "image",
+        ]
 
 
 class ProductImageSerializer(serializers.ModelSerializer):
@@ -181,13 +190,12 @@ class ProductVariantSerializer(serializers.ModelSerializer):
 
 
 class ProductListSerializer(serializers.ModelSerializer):
-    """
-    Lightweight serializer for Grid View.
-    """
-
     category_title = serializers.ReadOnlyField(source="sub_category.category.title")
     sub_category_title = serializers.ReadOnlyField(source="sub_category.title")
+
     image = serializers.ImageField(read_only=True)
+
+    images = ProductImageSerializer(many=True, read_only=True)
 
     class Meta:
         model = Product
@@ -199,6 +207,7 @@ class ProductListSerializer(serializers.ModelSerializer):
             "old_price",
             "discount_percentage",
             "image",
+            "images",
             "in_stock",
             "is_featured",
             "category_title",
@@ -207,9 +216,6 @@ class ProductListSerializer(serializers.ModelSerializer):
 
 
 class ProductDetailSerializer(serializers.ModelSerializer):
-    """
-    Full details including specs and variants.
-    """
 
     images = ProductImageSerializer(many=True, read_only=True)
     variants = ProductVariantSerializer(many=True, read_only=True)

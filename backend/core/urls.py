@@ -31,6 +31,7 @@ from .views import (
     # Notifications
     NotificationListView,
     MarkNotificationReadView,
+    SubCategoryListView,
 )
 
 # 1. Setup Router for ViewSets
@@ -59,6 +60,11 @@ urlpatterns = [
     # ==============================
     # Metadata & Filters
     path("products/categories/", CategoryListView.as_view(), name="category-list"),
+    path(
+        "products/subcategories/",
+        SubCategoryListView.as_view(),
+        name="subcategory-list",
+    ),
     path(
         "products/attributes/", AttributeListView.as_view(), name="attribute-list"
     ),  # Used for frontend filters

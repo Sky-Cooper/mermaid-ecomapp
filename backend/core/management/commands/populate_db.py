@@ -1,5 +1,5 @@
 import random
-import requests  # <--- Make sure to pip install requests
+import requests
 from io import BytesIO
 from PIL import Image
 from django.core.management.base import BaseCommand
@@ -11,6 +11,7 @@ from core.models import (
     SubCategory,
     Product,
     ProductVariant,
+    ProductImage,  # <--- Added Import
     Attribute,
     AttributeValue,
     ColorChoices,
@@ -26,10 +27,9 @@ class Command(BaseCommand):
         Falls back to a solid color placeholder if internet fails.
         """
         try:
-            # 1. Try to get a real random image (600x600 pixels)
-            # random=1 ensures we don't get the same cached image every time
+            # random=... ensures we get unique images
             response = requests.get(
-                f"https://picsum.photos/600/600?random={random.randint(1, 1000)}",
+                f"https://picsum.photos/600/600?random={random.randint(1, 10000)}",
                 timeout=5,
             )
 
@@ -43,15 +43,14 @@ class Command(BaseCommand):
                 )
             )
 
-        # 2. Fallback: Generate a solid color placeholder
         return self.generate_placeholder_image(name)
 
     def generate_placeholder_image(self, name):
         """Generates a solid color image with random pastel colors."""
         color = (
-            random.randint(150, 255),  # R (Pastel range)
-            random.randint(150, 255),  # G
-            random.randint(150, 255),  # B
+            random.randint(150, 255),
+            random.randint(150, 255),
+            random.randint(150, 255),
         )
         image = Image.new("RGB", (600, 600), color)
         img_io = BytesIO()
@@ -62,6 +61,7 @@ class Command(BaseCommand):
     def handle(self, *args, **kwargs):
         self.stdout.write("Deleting old data...")
         # Order matters to respect ForeignKeys
+        ProductImage.objects.all().delete()  # <--- Clean up old gallery images
         ProductVariant.objects.all().delete()
         Product.objects.all().delete()
         SubCategory.objects.all().delete()
@@ -71,11 +71,9 @@ class Command(BaseCommand):
 
         self.stdout.write("Creating Attributes...")
 
-        # 1. Create Attributes
         attr_size = Attribute.objects.create(code="SIZE", name="Clothing Size")
         attr_shoe = Attribute.objects.create(code="SHOE_SIZE", name="Shoe Size")
 
-        # 2. Create Values
         sizes = ["XS", "S", "M", "L", "XL"]
         shoe_sizes = ["36", "37", "38", "39", "40"]
 
@@ -90,7 +88,6 @@ class Command(BaseCommand):
 
         self.stdout.write("Creating Categories...")
 
-        # 3. Create Categories & SubCategories
         cats_data = [
             {
                 "title": "Clothing",
@@ -126,7 +123,6 @@ class Command(BaseCommand):
                     image=sub_img,
                 )
 
-                # 4. Create Products for this SubCategory
                 self.create_products_for_subcategory(
                     sub_cat, cat_data["title"], size_objs, shoe_objs
                 )
@@ -136,14 +132,13 @@ class Command(BaseCommand):
         )
 
     def create_products_for_subcategory(self, sub_cat, cat_type, size_objs, shoe_objs):
-        """Helper to generate 3 products per subcategory"""
         adjectives = ["Elegant", "Summer", "Cozy", "Luxury", "Mermaid", "Ocean"]
 
         for i in range(3):
             title = f"{random.choice(adjectives)} {sub_cat.title} {i+1}"
             price = random.randint(20, 200) + 0.99
 
-            # Get a real image for the product
+            # 1. Main Product Image
             prod_img = self.generate_image(title)
 
             product = Product.objects.create(
@@ -160,7 +155,7 @@ class Command(BaseCommand):
                 specifications={"Material": "Polyester", "Care": "Hand wash only"},
             )
 
-            # 5. Create Variants
+            # 2. Create Variants
             colors = [c[0] for c in ColorChoices.choices if c[0] != "NONE"]
             selected_colors = random.sample(colors, 2)
 
@@ -193,3 +188,13 @@ class Command(BaseCommand):
                         quantity=random.randint(5, 50),
                         sku_modifier=f"-{col}",
                     )
+
+            # 3. Create Product Gallery Images (ProductImage)
+            # Create 3 extra images for the gallery
+            for j in range(3):
+                gallery_title = f"{title} view {j+1}"
+                gallery_img = self.generate_image(gallery_title)
+
+                ProductImage.objects.create(
+                    product=product, image=gallery_img, alt_text=gallery_title
+                )
