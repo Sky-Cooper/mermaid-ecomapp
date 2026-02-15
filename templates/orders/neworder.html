@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="x-apple-disable-message-reformatting" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>LUNEA — Order Confirmation</title>
+  </head>
+
+  <body style="margin:0; padding:0; background:#E1E2DB;">
+    <!-- Preheader (hidden preview text) -->
+    <div style="display:none; max-height:0; overflow:hidden; opacity:0; color:transparent;">
+      Your LUNEA order is confirmed. We are preparing your pieces with exceptional care.
+    </div>
+
+    <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background:#E1E2DB; padding:32px 0;">
+      <tr>
+        <td align="center" style="padding:0 16px;">
+          <!-- Container -->
+          <table role="presentation" cellpadding="0" cellspacing="0" width="640" style="max-width:640px; width:100%; background:#E1E2DB;">
+            <!-- Card -->
+            <tr>
+              <td style="background:#E1E2DB; border:1px solid #313031; border-radius:18px; overflow:hidden;">
+                <!-- Header -->
+                <table role="presentation" cellpadding="0" cellspacing="0" width="100%">
+                  <tr>
+                    <td style="padding:28px 28px 18px 28px;">
+                      <table role="presentation" cellpadding="0" cellspacing="0" width="100%">
+                        <tr>
+                          <td align="left" style="vertical-align:middle;">
+                            <!-- Inline logo via CID -->
+                            <img
+                              src="cid:lunea_logo"
+                              width="120"
+                              alt="LUNEA"
+                              style="display:block; border:0; outline:none; text-decoration:none;"
+                            />
+                          </td>
+                          <td align="right" style="vertical-align:middle;">
+                            <div style="font-family: Georgia, 'Times New Roman', serif; color:#313031; letter-spacing:0.16em; font-size:12px;">
+                              L U N E A
+                            </div>
+                          </td>
+                        </tr>
+                      </table>
+
+                      <div style="height:14px;"></div>
+
+                      <div style="font-family: Georgia, 'Times New Roman', serif; color:#313031; font-size:28px; line-height:1.25;">
+                        Your order is confirmed
+                      </div>
+
+                      <div style="height:10px;"></div>
+
+                      <div style="font-family: Arial, Helvetica, sans-serif; color:#313031; font-size:14px; line-height:1.8;">
+                        Dear {{ user_first_name|default:"Valued Client" }},
+                        <br />
+                        Thank you for choosing <strong style="font-weight:700;">LUNEA</strong>.
+                        Your selection is now reserved, and our atelier is preparing each piece with
+                        a level of care worthy of you.
+                      </div>
+
+                      <div style="height:18px;"></div>
+
+                      <!-- Order meta -->
+                      <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-top:1px solid rgba(49,48,49,0.25); border-bottom:1px solid rgba(49,48,49,0.25);">
+                        <tr>
+                          <td style="padding:14px 0;">
+                            <table role="presentation" cellpadding="0" cellspacing="0" width="100%">
+                              <tr>
+                                <td style="font-family: Arial, Helvetica, sans-serif; color:#313031; font-size:12px; letter-spacing:0.08em;">
+                                  ORDER
+                                </td>
+                                <td align="right" style="font-family: Arial, Helvetica, sans-serif; color:#313031; font-size:12px;">
+                                  <strong>{{ order_id }}</strong>
+                                </td>
+                              </tr>
+                              <tr>
+                                <td style="font-family: Arial, Helvetica, sans-serif; color:#313031; font-size:12px; letter-spacing:0.08em; padding-top:8px;">
+                                  DATE
+                                </td>
+                                <td align="right" style="font-family: Arial, Helvetica, sans-serif; color:#313031; font-size:12px; padding-top:8px;">
+                                  {{ order_date }}
+                                </td>
+                              </tr>
+                              <tr>
+                                <td style="font-family: Arial, Helvetica, sans-serif; color:#313031; font-size:12px; letter-spacing:0.08em; padding-top:8px;">
+                                  STATUS
+                                </td>
+                                <td align="right" style="font-family: Arial, Helvetica, sans-serif; color:#313031; font-size:12px; padding-top:8px;">
+                                  {{ order_status }}
+                                </td>
+                              </tr>
+                            </table>
+                          </td>
+                        </tr>
+                      </table>
+
+                      <div style="height:18px;"></div>
+
+                      <!-- Items -->
+                      <div style="font-family: Arial, Helvetica, sans-serif; color:#313031; font-size:12px; letter-spacing:0.12em;">
+                        YOUR PIECES
+                      </div>
+                      <div style="height:10px;"></div>
+
+                      <table role="presentation" cellpadding="0" cellspacing="0" width="100%">
+                        {% for it in items %}
+                        <tr>
+                          <td style="padding:10px 0; border-bottom:1px solid rgba(49,48,49,0.15);">
+                            <div style="font-family: Georgia, 'Times New Roman', serif; color:#313031; font-size:16px; line-height:1.35;">
+                              {{ it.product_name }}
+                            </div>
+                            <div style="font-family: Arial, Helvetica, sans-serif; color:#313031; font-size:12px; opacity:0.9; line-height:1.6;">
+                              Qty: {{ it.quantity }}
+                              {% if it.size %} · Size: {{ it.size }}{% endif %}
+                              {% if it.color %} · Color: {{ it.color }}{% endif %}
+                            </div>
+                          </td>
+                          <td align="right" style="padding:10px 0; border-bottom:1px solid rgba(49,48,49,0.15); font-family: Arial, Helvetica, sans-serif; color:#313031; font-size:13px;">
+                            {{ it.subtotal }} MAD
+                          </td>
+                        </tr>
+                        {% endfor %}
+                      </table>
+
+                      <div style="height:16px;"></div>
+
+                      <!-- Totals -->
+                      <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background:rgba(49,48,49,0.04); border:1px solid rgba(49,48,49,0.18); border-radius:14px;">
+                        <tr>
+                          <td style="padding:16px;">
+                            <table role="presentation" cellpadding="0" cellspacing="0" width="100%">
+                              <tr>
+                                <td style="font-family: Arial, Helvetica, sans-serif; color:#313031; font-size:12px; letter-spacing:0.08em;">
+                                  SUBTOTAL
+                                </td>
+                                <td align="right" style="font-family: Arial, Helvetica, sans-serif; color:#313031; font-size:12px;">
+                                  {{ subtotal }} MAD
+                                </td>
+                              </tr>
+                              <tr>
+                                <td style="font-family: Arial, Helvetica, sans-serif; color:#313031; font-size:12px; letter-spacing:0.08em; padding-top:8px;">
+                                  SHIPPING
+                                </td>
+                                <td align="right" style="font-family: Arial, Helvetica, sans-serif; color:#313031; font-size:12px; padding-top:8px;">
+                                  {{ shipping_fee }} MAD
+                                </td>
+                              </tr>
+                              {% if coupon_code %}
+                              <tr>
+                                <td style="font-family: Arial, Helvetica, sans-serif; color:#313031; font-size:12px; letter-spacing:0.08em; padding-top:8px;">
+                                  COUPON
+                                </td>
+                                <td align="right" style="font-family: Arial, Helvetica, sans-serif; color:#313031; font-size:12px; padding-top:8px;">
+                                  {{ coupon_code }}
+                                </td>
+                              </tr>
+                              {% endif %}
+                              <tr>
+                                <td style="padding-top:12px; font-family: Arial, Helvetica, sans-serif; color:#313031; font-size:12px; letter-spacing:0.10em;">
+                                  TOTAL
+                                </td>
+                                <td align="right" style="padding-top:12px; font-family: Georgia, 'Times New Roman', serif; color:#313031; font-size:18px;">
+                                  <strong>{{ total_amount }} MAD</strong>
+                                </td>
+                              </tr>
+                            </table>
+                          </td>
+                        </tr>
+                      </table>
+
+                      <div style="height:18px;"></div>
+
+                      <!-- Luxury message -->
+                      <div style="font-family: Arial, Helvetica, sans-serif; color:#313031; font-size:13px; line-height:1.85;">
+                        In LUNEA, we don’t simply ship orders — we prepare experiences.
+                        If there is anything you wish to adjust, refine, or request, reply to this message
+                        and our concierge will handle it personally.
+                      </div>
+
+                      <div style="height:14px;"></div>
+
+                      <!-- Footer note -->
+                      <div style="font-family: Arial, Helvetica, sans-serif; color:#313031; font-size:12px; opacity:0.85; line-height:1.7;">
+                        Shipping City: <strong>{{ shipping_city }}</strong><br/>
+                        Delivery Updates: You’ll receive an email when your order is processed & shipped.
+                      </div>
+
+                      <div style="height:22px;"></div>
+
+                      <div style="font-family: Georgia, 'Times New Roman', serif; color:#313031; font-size:16px;">
+                        With gratitude,<br/>
+                        <span style="letter-spacing:0.08em;">LUNEA</span> Concierge
+                      </div>
+
+                      <div style="height:18px;"></div>
+
+                      <div style="font-family: Arial, Helvetica, sans-serif; color:#313031; font-size:11px; opacity:0.8; line-height:1.6;">
+                        Need assistance? Contact us at <strong>{{ support_email }}</strong>
+                      </div>
+
+                      <div style="height:8px;"></div>
+
+                      <div style="font-family: Arial, Helvetica, sans-serif; color:#313031; font-size:10px; opacity:0.65; letter-spacing:0.10em;">
+                        © {{ year }} LUNEA — ALL RIGHTS RESERVED
+                      </div>
+                    </td>
+                  </tr>
+                </table>
+                <!-- /Header -->
+              </td>
+            </tr>
+            <!-- /Card -->
+          </table>
+          <!-- /Container -->
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>

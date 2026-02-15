@@ -7,7 +7,6 @@ services:
       dockerfile: docker/django/Dockerfile
     container_name: mermaid_backend
     command: python backend/manage.py runserver 0.0.0.0:8000
-
     volumes:
       - .:/app
     ports:
@@ -17,6 +16,22 @@ services:
     depends_on:
       - db
       - redis
+
+  celery_worker:
+    build:
+      context: .
+      dockerfile: docker/django/Dockerfile
+    container_name: mermaid_celery_worker
+    working_dir: /app/backend
+    command: celery -A backend.celery:app worker -l info
+    volumes:
+      - .:/app
+    env_file:
+      - .env
+    depends_on:
+      - db
+      - redis
+
 
   db:
     image: postgres:15

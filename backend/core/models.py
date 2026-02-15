@@ -211,6 +211,7 @@ class User(AbstractBaseUser, PermissionsMixin):
         blank=True,
         help_text="Specific permissions for this user.",
     )
+
     # --------------------------------------------------------------
 
     USERNAME_FIELD = "email"

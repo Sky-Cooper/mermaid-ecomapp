@@ -77,6 +77,7 @@ from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework.pagination import PageNumberPagination
 from .pagination import StandardResultsSetPagination
 from decimal import Decimal
+from core.tasks import send_order_confirmation_email
 
 
 class CustomerRegistrationView(APIView):
@@ -703,8 +704,9 @@ class OrderViewSet(ModelViewSet):
 
         # 6. Clear Cart
         cart.cart_items.all().delete()
-
+        transaction.on_commit(lambda: send_order_confirmation_email.delay(order.id))
         read_serializer = OrderReadSerializer(order)
+
         return Response(read_serializer.data, status=status.HTTP_201_CREATED)
 
 

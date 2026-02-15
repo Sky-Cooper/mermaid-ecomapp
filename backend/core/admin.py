@@ -152,12 +152,15 @@ class LoyaltyProfileInline(admin.StackedInline):
     readonly_fields = ("points", "tier")
 
 
+# admin.py
 @admin.register(User)
 class UserAdmin(BaseUserAdmin, ImagePreviewMixin):
     ordering = ["email"]
     list_display = ("email", "get_full_name", "role", "is_active", "get_image_preview")
     list_filter = ("role", "is_active", "preferred_language")
     search_fields = ("email", "first_name", "last_name", "phone_number")
+
+    readonly_fields = ("last_login", "created_at", "updated_at")
 
     fieldsets = (
         (None, {"fields": ("email", "password")}),
@@ -169,9 +172,13 @@ class UserAdmin(BaseUserAdmin, ImagePreviewMixin):
             _("Permissions"),
             {"fields": ("role", "is_active", "is_staff", "is_superuser", "groups")},
         ),
-        (_("Important Dates"), {"fields": ("last_login", "date_joined")}),
+        (_("Important Dates"), {"fields": ("last_login", "created_at", "updated_at")}),
     )
-    inlines = [ShippingAddressInline, LoyaltyProfileInline]  # Added Loyalty inline
+
+    inlines = [ShippingAddressInline, LoyaltyProfileInline]
+
+
+# Added Loyalty inline
 
 
 @admin.register(StoreProfile)
