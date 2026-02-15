@@ -33,6 +33,9 @@ from .views import (
     MarkNotificationReadView,
     SubCategoryListView,
     ProductReviewListView,
+    LoyaltyDashboardView,
+    ConvertPointsView,
+    MyCouponsView,
 )
 
 # 1. Setup Router for ViewSets
@@ -106,6 +109,9 @@ urlpatterns = [
         MarkNotificationReadView.as_view(),
         name="notification-read",
     ),
+    path("loyalty/", LoyaltyDashboardView.as_view(), name="loyalty-dashboard"),
+    path("loyalty/convert/", ConvertPointsView.as_view(), name="loyalty-convert"),
+    path("coupons/", MyCouponsView.as_view(), name="my-coupons"),
     # ==============================
     # 7. Router URLs (Addresses, Orders, CartItems)
     # ==============================

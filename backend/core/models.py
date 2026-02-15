@@ -72,6 +72,12 @@ class ShippingCity(models.TextChoices):
     OTHER = "OTHER", "Other"
 
 
+class LoyaltyTier(models.TextChoices):
+    BRONZE = "BRONZE", "Bronze Member"
+    SILVER = "SILVER", "Silver Member"
+    GOLD = "GOLD", "Gold Member"
+
+
 class UserRole(models.TextChoices):
     SUPER_ADMIN = "SUPER_ADMIN", "Super Admin"
     ADMIN = "ADMIN", "Admin"
@@ -217,6 +223,48 @@ class User(AbstractBaseUser, PermissionsMixin):
 
     def __str__(self):
         return self.email
+
+
+class LoyaltyProfile(models.Model):
+    user = models.OneToOneField(
+        User, on_delete=models.CASCADE, related_name="loyalty_profile"
+    )
+    points = models.PositiveIntegerField(default=0)
+    total_lifetime_points = models.PositiveIntegerField(
+        default=0
+    )  # Used to calculate Tier
+    tier = models.CharField(
+        max_length=20, choices=LoyaltyTier.choices, default=LoyaltyTier.BRONZE
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def calculate_tier(self):
+        """Auto-upgrade tier based on lifetime points"""
+        if self.total_lifetime_points >= 2000:  # 20,000 DH spent
+            self.tier = LoyaltyTier.GOLD
+        elif self.total_lifetime_points >= 500:  # 5,000 DH spent
+            self.tier = LoyaltyTier.SILVER
+        else:
+            self.tier = LoyaltyTier.BRONZE
+        self.save()
+
+    def __str__(self):
+        return f"{self.user.email} - {self.points} pts ({self.tier})"
+
+
+class LoyaltyHistory(models.Model):
+    TRANSACTION_TYPES = (
+        ("EARN", "Earned"),
+        ("SPEND", "Spent"),
+        ("BONUS", "Bonus"),
+    )
+    profile = models.ForeignKey(
+        LoyaltyProfile, on_delete=models.CASCADE, related_name="history"
+    )
+    type = models.CharField(max_length=10, choices=TRANSACTION_TYPES)
+    points = models.IntegerField()  # Can be negative for refunds
+    description = models.CharField(max_length=255)
+    created_at = models.DateTimeField(auto_now_add=True)
 
 
 class ShippingAddress(models.Model):
@@ -489,19 +537,30 @@ class CartItem(models.Model):
 
 class Coupon(models.Model):
     code = models.CharField(max_length=50, unique=True)
+
     discount_percentage = models.PositiveIntegerField(
         validators=[MaxValueValidator(100)]
     )
+    fixed_discount_amount = models.DecimalField(
+        max_digits=10, decimal_places=2, default=Decimal("0.00")
+    )
+
     valid_from = models.DateTimeField()
     valid_to = models.DateTimeField()
     active = models.BooleanField(default=True)
 
+    # NEW
+    owner = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="coupons", null=True, blank=True
+    )
+    is_used = models.BooleanField(default=False)
+    used_at = models.DateTimeField(null=True, blank=True)
+
     def is_valid(self):
         now = timezone.now()
-        return self.active and self.valid_from <= now <= self.valid_to
-
-    def __str__(self):
-        return self.code
+        return (
+            self.active and self.valid_from <= now <= self.valid_to and not self.is_used
+        )
 
 
 class Order(models.Model):
@@ -572,7 +631,7 @@ class OrderItem(models.Model):
     quantity = models.PositiveIntegerField(default=1)
 
     def get_subtotal(self):
-        return self.product_price * self.quantity
+        return (self.product_price or Decimal("0.00")) * (self.quantity or 0)
 
     def __str__(self):
         return f"{self.quantity} x {self.product_name}"

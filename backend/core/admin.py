@@ -23,6 +23,8 @@ from .models import (
     Order,
     OrderItem,
     Notification,
+    LoyaltyProfile,  # <--- Added
+    LoyaltyHistory,  # <--- Added
 )
 
 # ==========================================
@@ -92,7 +94,6 @@ class AttributeAdmin(admin.ModelAdmin):
     count_values.short_description = "Options Count"
 
 
-# --- FIX: Register AttributeValue so autocomplete works ---
 @admin.register(AttributeValue)
 class AttributeValueAdmin(admin.ModelAdmin):
     search_fields = ["value"]
@@ -101,7 +102,39 @@ class AttributeValueAdmin(admin.ModelAdmin):
 
 
 # ==========================================
-# 3. USER & AUTH ADMIN
+# 3. LOYALTY SYSTEM ADMIN (NEW)
+# ==========================================
+
+
+class LoyaltyHistoryInline(admin.TabularInline):
+    model = LoyaltyHistory
+    extra = 0
+    readonly_fields = ("type", "points", "description", "created_at")
+    can_delete = False
+    ordering = ("-created_at",)
+
+    def has_add_permission(self, request, obj=None):
+        return False  # Prevent manual adding of history logs
+
+
+@admin.register(LoyaltyProfile)
+class LoyaltyProfileAdmin(admin.ModelAdmin):
+    list_display = ("user", "points", "total_lifetime_points", "tier", "updated_at")
+    list_filter = ("tier",)
+    search_fields = ("user__email", "user__first_name")
+    readonly_fields = (
+        "total_lifetime_points",
+    )  # Prevent manual edit of lifetime points logic
+    inlines = [LoyaltyHistoryInline]
+
+    fieldsets = (
+        (None, {"fields": ("user",)}),
+        (_("Points Balance"), {"fields": ("points", "tier", "total_lifetime_points")}),
+    )
+
+
+# ==========================================
+# 4. USER & AUTH ADMIN
 # ==========================================
 
 
@@ -109,6 +142,14 @@ class ShippingAddressInline(admin.StackedInline):
     model = ShippingAddress
     extra = 0
     classes = ["collapse"]
+
+
+class LoyaltyProfileInline(admin.StackedInline):
+    model = LoyaltyProfile
+    can_delete = False
+    verbose_name_plural = "Loyalty Profile"
+    fk_name = "user"
+    readonly_fields = ("points", "tier")
 
 
 @admin.register(User)
@@ -130,7 +171,7 @@ class UserAdmin(BaseUserAdmin, ImagePreviewMixin):
         ),
         (_("Important Dates"), {"fields": ("last_login", "date_joined")}),
     )
-    inlines = [ShippingAddressInline]
+    inlines = [ShippingAddressInline, LoyaltyProfileInline]  # Added Loyalty inline
 
 
 @admin.register(StoreProfile)
@@ -149,7 +190,7 @@ class ShippingAddressAdmin(admin.ModelAdmin):
 
 
 # ==========================================
-# 4. PRODUCT CATALOG ADMIN
+# 5. PRODUCT CATALOG ADMIN
 # ==========================================
 
 
@@ -157,7 +198,7 @@ class ShippingAddressAdmin(admin.ModelAdmin):
 class CategoryAdmin(admin.ModelAdmin, ImagePreviewMixin):
     list_display = ("title", "slug", "is_active", "get_image_preview")
     prepopulated_fields = {"slug": ("title",)}
-    search_fields = ["title"]  # --- FIX: Added search_fields
+    search_fields = ["title"]
 
 
 @admin.register(SubCategory)
@@ -177,9 +218,7 @@ class ProductVariantInline(admin.TabularInline):
     model = ProductVariant
     extra = 1
     classes = ["collapse"]
-    autocomplete_fields = [
-        "size"
-    ]  # Works now because AttributeValueAdmin is registered above
+    autocomplete_fields = ["size"]
 
 
 @admin.register(Product)
@@ -231,7 +270,7 @@ class ProductAdmin(admin.ModelAdmin, ImagePreviewMixin, JSONPrettyMixin):
 
 
 # ==========================================
-# 5. ORDER SYSTEM ADMIN
+# 6. ORDER SYSTEM ADMIN
 # ==========================================
 
 
@@ -273,6 +312,7 @@ class OrderAdmin(admin.ModelAdmin):
                 "fields": (
                     "shipping_address",
                     "shipping_city",
+                    "shipping_fee",  # <--- Added to view
                     "shipping_phone",
                     "tracking_number",
                 )
@@ -287,11 +327,45 @@ class OrderAdmin(admin.ModelAdmin):
 
 @admin.register(Coupon)
 class CouponAdmin(admin.ModelAdmin):
-    list_display = ("code", "discount_percentage", "active", "valid_to")
+    list_display = (
+        "code",
+        "owner",
+        "discount_type",
+        "value",
+        "active",
+        "is_used",
+        "valid_from",
+        "valid_to",
+        "is_currently_valid",
+    )
+    list_filter = ("active", "is_used", "valid_to", "owner")
+    search_fields = ("code", "owner__email", "owner__first_name", "owner__last_name")
+    autocomplete_fields = ("owner",)
+    readonly_fields = ("used_at",)
+
+    def discount_type(self, obj):
+        if obj.fixed_discount_amount and obj.fixed_discount_amount > 0:
+            return "Fixed Amount"
+        return "Percentage"
+
+    discount_type.short_description = "Type"
+
+    def value(self, obj):
+        if obj.fixed_discount_amount and obj.fixed_discount_amount > 0:
+            return f"-{obj.fixed_discount_amount} DH"
+        return f"-{obj.discount_percentage}%"
+
+    value.short_description = "Value"
+
+    def is_currently_valid(self, obj):
+        return obj.is_valid()
+
+    is_currently_valid.boolean = True
+    is_currently_valid.short_description = "Valid now?"
 
 
 # ==========================================
-# 6. OTHER ADMINS
+# 7. OTHER ADMINS
 # ==========================================
 
 

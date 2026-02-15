@@ -25,6 +25,7 @@ from dj_rest_auth.registration.views import SocialLoginView
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.db.models import Avg, Prefetch, Sum, Count
 from .helpers import calculate_shipping_fee
+import uuid
 
 # Local Imports
 from .models import (
@@ -44,7 +45,9 @@ from .models import (
     Notification,
     OrderStatus,
     Attribute,
-    ProductVariant,  # <--- Added
+    ProductVariant,
+    LoyaltyProfile,
+    LoyaltyHistory,
 )
 from .serializers import (
     CustomerRegistrationSerializer,
@@ -64,6 +67,10 @@ from .serializers import (
     NotificationSerializer,
     AttributeSerializer,
     SubCategorySerializer,
+    LoyaltyHistorySerializer,
+    LoyaltyProfileSerializer,
+    ConvertPointsSerializer,
+    CouponSerializer,
 )
 from .filters import ProductFilter, OrderFilter
 from rest_framework.parsers import MultiPartParser, FormParser
@@ -609,11 +616,16 @@ class OrderViewSet(ModelViewSet):
         if coupon_code:
             coupon = Coupon.objects.filter(
                 code=coupon_code,
+                owner=request.user,  # if you want coupons to be per-user
                 active=True,
+                is_used=False,
                 valid_from__lte=timezone.now(),
                 valid_to__gte=timezone.now(),
             ).first()
             if coupon:
+                coupon.is_used = True
+                coupon.used_at = timezone.now()
+                coupon.save(update_fields=["is_used", "used_at"])
                 order.coupon = coupon
                 order.save()
 
@@ -664,16 +676,28 @@ class OrderViewSet(ModelViewSet):
 
         # Apply Discount
         if order.coupon:
-            discount = (
-                total_amount * Decimal(order.coupon.discount_percentage)
-            ) / Decimal("100")
-            total_amount = total_amount - discount
+            # Case A: Percentage Discount (e.g. 10% Off)
+            if order.coupon.discount_percentage > 0:
+                discount = (
+                    total_amount * Decimal(order.coupon.discount_percentage)
+                ) / Decimal("100")
+                total_amount = total_amount - discount
+
+            # Case B: Fixed Amount Discount (e.g. -50 DH from Loyalty Points)
+            elif order.coupon.fixed_discount_amount > 0:
+                total_amount = total_amount - order.coupon.fixed_discount_amount
+
+            # Safety Check: Total cannot be negative
+            if total_amount < Decimal("0.00"):
+                total_amount = Decimal("0.00")
+        # ===========================
 
         shipping_fee = calculate_shipping_fee(order.shipping_city)
         order.shipping_fee = shipping_fee
+
+        # Add shipping AFTER discount is applied
         total_amount = total_amount + shipping_fee
 
-        order.total_amount = total_amount
         order.total_amount = total_amount
         order.save()
 
@@ -705,3 +729,73 @@ class MarkNotificationReadView(APIView):
         notification.is_read = True
         notification.save()
         return Response({"status": "Marked as read"})
+
+
+class LoyaltyDashboardView(RetrieveAPIView):
+    permission_classes = [IsAuthenticated]
+    serializer_class = LoyaltyProfileSerializer
+
+    def get_object(self):
+        profile, _ = LoyaltyProfile.objects.get_or_create(user=self.request.user)
+        return profile
+
+
+# 2. Conversion View (Burn Points -> Get Coupon)
+class ConvertPointsView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        serializer = ConvertPointsSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        points_to_burn = serializer.validated_data["points_to_burn"]
+        profile = get_object_or_404(LoyaltyProfile, user=request.user)
+
+        # Validation
+        if profile.points < points_to_burn:
+            return Response({"error": "Insufficient points balance."}, status=400)
+
+        # Logic: 100 Points = 50 DH
+        # Allows for flexible amounts (e.g. 150 points = 75 DH)
+        discount_amount = Decimal(points_to_burn) / Decimal(2)
+
+        with transaction.atomic():
+            # Deduct Points
+            profile.points -= points_to_burn
+            profile.save()
+
+            # Generate Coupon
+            code = f"WIN-{request.user.id}-{uuid.uuid4().hex[:4].upper()}"
+            Coupon.objects.create(
+                code=code,
+                discount_percentage=0,
+                fixed_discount_amount=discount_amount,
+                valid_from=timezone.now(),
+                valid_to=timezone.now() + timedelta(days=60),
+                owner=request.user,  # ✅ add this
+            )
+
+            # Log History
+            LoyaltyHistory.objects.create(
+                profile=profile,
+                type="SPEND",
+                points=points_to_burn,
+                description=f"Converted to voucher {code}",
+            )
+
+        return Response(
+            {
+                "message": "Coupon generated successfully!",
+                "coupon_code": code,
+                "value": f"{discount_amount} DH",
+                "remaining_points": profile.points,
+            }
+        )
+
+
+class MyCouponsView(ListAPIView):
+    permission_classes = [IsAuthenticated]
+    serializer_class = CouponSerializer
+
+    def get_queryset(self):
+        return Coupon.objects.filter(owner=self.request.user).order_by("-valid_to")

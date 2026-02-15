@@ -21,6 +21,8 @@ from .models import (
     Order,
     OrderItem,
     Notification,
+    LoyaltyHistory,
+    LoyaltyProfile,
 )
 
 # ==========================================
@@ -437,6 +439,11 @@ class OrderCreateSerializer(serializers.ModelSerializer):
             "coupon_code",
         ]
 
+    def create(self, validated_data):
+        # Remove non-model field so Order.objects.create() doesn't explode
+        validated_data.pop("coupon_code", None)
+        return super().create(validated_data)
+
 
 # ==========================================
 # 6. NOTIFICATION SERIALIZER
@@ -447,3 +454,42 @@ class NotificationSerializer(serializers.ModelSerializer):
     class Meta:
         model = Notification
         fields = ["id", "title", "message", "is_read", "created_at"]
+
+
+class LoyaltyHistorySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = LoyaltyHistory
+        fields = ["type", "points", "description", "created_at"]
+
+
+class LoyaltyProfileSerializer(serializers.ModelSerializer):
+    history = LoyaltyHistorySerializer(many=True, read_only=True)
+
+    class Meta:
+        model = LoyaltyProfile
+        fields = ["points", "total_lifetime_points", "tier", "history"]
+
+
+class ConvertPointsSerializer(serializers.Serializer):
+    points_to_burn = serializers.IntegerField(min_value=100)
+
+
+class CouponSerializer(serializers.ModelSerializer):
+    is_valid = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Coupon
+        fields = [
+            "code",
+            "discount_percentage",
+            "fixed_discount_amount",
+            "valid_from",
+            "valid_to",
+            "active",
+            "is_used",
+            "used_at",
+            "is_valid",
+        ]
+
+    def get_is_valid(self, obj):
+        return obj.is_valid()
