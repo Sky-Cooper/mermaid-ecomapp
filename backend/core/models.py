@@ -24,6 +24,54 @@ class LanguageChoices(models.TextChoices):
     ENGLISH = "en", "English"
 
 
+class ShippingCity(models.TextChoices):
+    AGADIR = "AGADIR", "Agadir"
+    AL_HOCEIMA = "AL_HOCEIMA", "Al Hoceïma"
+    AZILAL = "AZILAL", "Azilal"
+    BENI_MELLAL = "BENI_MELLAL", "Béni Mellal"
+    BEN_SLIMANE = "BEN_SLIMANE", "Ben Slimane"
+    BERKANE = "BERKANE", "Berkane"
+    BERRECHID = "BERRECHID", "Berrechid"
+    BOUSKOURA = "BOUSKOURA", "Bouskoura"
+    CASABLANCA = "CASABLANCA", "Casablanca"
+    CHEFCHAOUEN = "CHEFCHAOUEN", "Chefchaouen"
+    DAKHLA = "DAKHLA", "Dakhla"
+    DAR_BOUAZZA = "DAR_BOUAZZA", "Dar Bouazza"
+    EL_JADIDA = "EL_JADIDA", "El Jadida"
+    ERRACHIDIA = "ERRACHIDIA", "Errachidia"
+    ESSAOUIRA = "ESSAOUIRA", "Essaouira"
+    FES = "FES", "Fès"
+    FNIDEQ = "FNIDEQ", "Fnideq"
+    GUELMIM = "GUELMIM", "Guelmim"
+    IFRANE = "IFRANE", "Ifrane"
+    KENITRA = "KENITRA", "Kénitra"
+    KHEMISSET = "KHEMISSET", "Khémisset"
+    KHENIFRA = "KHENIFRA", "Khénifra"
+    KHOURIBGA = "KHOURIBGA", "Khouribga"
+    LAAYOUNE = "LAAYOUNE", "Laâyoune"
+    LARACHE = "LARACHE", "Larache"
+    MARRAKECH = "MARRAKECH", "Marrakech"
+    MARTIL = "MARTIL", "Martil"
+    MEKNES = "MEKNES", "Meknès"
+    MOHAMMEDIA = "MOHAMMEDIA", "Mohammédia"
+    NADOR = "NADOR", "Nador"
+    OUARZAZATE = "OUARZAZATE", "Ouarzazate"
+    OUJDA = "OUJDA", "Oujda"
+    RABAT = "RABAT", "Rabat"
+    SAFI = "SAFI", "Safi"
+    SALE = "SALE", "Salé"
+    SETTAT = "SETTAT", "Settat"
+    SIDI_KACEM = "SIDI_KACEM", "Sidi Kacem"
+    SKHIRAT = "SKHIRAT", "Skhirat"
+    TANGER = "TANGER", "Tanger"
+    TAROUDANT = "TAROUDANT", "Taroudant"
+    TAZA = "TAZA", "Taza"
+    TEMARA = "TEMARA", "Témara"
+    TETOUAN = "TETOUAN", "Tétouan"
+    TIZNIT = "TIZNIT", "Tiznit"
+    OTHER = "OTHER", "Other"
+
+
 class UserRole(models.TextChoices):
     SUPER_ADMIN = "SUPER_ADMIN", "Super Admin"
     ADMIN = "ADMIN", "Admin"
@@ -465,7 +513,6 @@ class Order(models.Model):
 
     # Shipping Info (Snapshot at time of order)
     shipping_address = models.TextField()
-    shipping_city = models.CharField(max_length=100)
     shipping_phone = models.CharField(max_length=50)
 
     # Status
@@ -479,7 +526,14 @@ class Order(models.Model):
     )
     is_paid = models.BooleanField(default=False)
 
-    # Financials
+    shipping_city = models.CharField(
+        max_length=50,
+        choices=ShippingCity.choices,
+    )
+
+    shipping_fee = models.DecimalField(
+        max_digits=10, decimal_places=2, default=Decimal("0.00")
+    )
     total_amount = models.DecimalField(
         max_digits=10, decimal_places=2, default=Decimal("0.00")
     )

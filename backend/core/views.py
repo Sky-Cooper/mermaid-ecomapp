@@ -24,6 +24,7 @@ from allauth.socialaccount.providers.oauth2.client import OAuth2Client
 from dj_rest_auth.registration.views import SocialLoginView
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.db.models import Avg, Prefetch, Sum, Count
+from .helpers import calculate_shipping_fee
 
 # Local Imports
 from .models import (
@@ -668,6 +669,11 @@ class OrderViewSet(ModelViewSet):
             ) / Decimal("100")
             total_amount = total_amount - discount
 
+        shipping_fee = calculate_shipping_fee(order.shipping_city)
+        order.shipping_fee = shipping_fee
+        total_amount = total_amount + shipping_fee
+
+        order.total_amount = total_amount
         order.total_amount = total_amount
         order.save()
 

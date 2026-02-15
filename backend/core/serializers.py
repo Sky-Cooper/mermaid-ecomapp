@@ -412,6 +412,7 @@ class OrderReadSerializer(serializers.ModelSerializer):
             "payment_method",
             "is_paid",
             "total_amount",
+            "shipping_fee",
             "shipping_address",
             "shipping_city",
             "tracking_number",

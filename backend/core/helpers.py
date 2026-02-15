@@ -1,4 +1,11 @@
 from django.utils.text import slugify
+from decimal import Decimal
+
+
+def calculate_shipping_fee(city: str) -> Decimal:
+    if (city or "").upper() == "CASABLANCA":
+        return Decimal("10.00")
+    return Decimal("25.00")
 
 
 def unique_slugify(instance, base, slug_field="slug"):
