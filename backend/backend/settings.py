@@ -42,6 +42,7 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    "django.contrib.sites",
     "rest_framework",
     "django_filters",
     "core",
@@ -142,21 +143,32 @@ USE_TZ = True
 
 STATIC_URL = "static/"
 
+# settings.py
+
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
         "rest_framework_simplejwt.authentication.JWTAuthentication",
     ),
-    # keep default authenticated, and override to AllowAny per public views
     "DEFAULT_PERMISSION_CLASSES": ("rest_framework.permissions.IsAuthenticated",),
-    # ✅ filters + search + ordering globally
     "DEFAULT_FILTER_BACKENDS": (
         "django_filters.rest_framework.DjangoFilterBackend",
         "rest_framework.filters.SearchFilter",
         "rest_framework.filters.OrderingFilter",
     ),
-    # ✅ pagination globally
     "DEFAULT_PAGINATION_CLASS": "core.pagination.StandardResultsSetPagination",
     "PAGE_SIZE": 12,
+    # --- ADD THIS SECTION ---
+    "DEFAULT_THROTTLE_CLASSES": [
+        "rest_framework.throttling.AnonRateThrottle",
+        "rest_framework.throttling.UserRateThrottle",
+        "rest_framework.throttling.ScopedRateThrottle",
+    ],
+    "DEFAULT_THROTTLE_RATES": {
+        "anon": "200/day",  # General limit for guests (IP based)
+        "user": "1000/day",  # General limit for logged-in users
+        "auth_burst": "10/min",  # Strict limit for Login/Register
+        "password_reset": "5/hour",  # Very strict limit for email sending endpoints
+    },
 }
 
 
@@ -193,8 +205,8 @@ TOKEN_MODEL = None
 SOCIALACCOUNT_PROVIDERS = {
     "google": {
         "APP": {
-            "client_id": "YOUR_GOOGLE_CLIENT_ID_HERE",
-            "secret": "YOUR_GOOGLE_CLIENT_SECRET_HERE",
+            "client_id": os.getenv("GOOGLE_CLIENT_ID"),
+            "secret": os.getenv("GOOGLE_CLIENT_SECRET"),
             "key": "",
         },
         "SCOPE": [

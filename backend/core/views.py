@@ -81,11 +81,14 @@ from rest_framework.pagination import PageNumberPagination
 from .pagination import StandardResultsSetPagination
 from decimal import Decimal
 from core.tasks import send_order_confirmation_email, send_password_reset_email
+from rest_framework.throttling import ScopedRateThrottle
 
 
 class CustomerRegistrationView(APIView):
     permission_classes = [AllowAny]
     parser_classes = [MultiPartParser, FormParser]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "auth_burst"
 
     def post(self, request):
         serializer = CustomerRegistrationSerializer(data=request.data)
@@ -100,6 +103,8 @@ class CustomerRegistrationView(APIView):
 
 class CustomTokenObtainPairView(TokenObtainPairView):
     serializer_class = CustomTokenObtainPairSerializer
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "auth_burst"
 
     def post(self, request, *args, **kwargs):
         response = super().post(request, *args, **kwargs)
@@ -186,7 +191,7 @@ class LogoutView(APIView):
 
 class GoogleLogin(SocialLoginView):
     adapter_class = GoogleOAuth2Adapter
-    callback_url = "http://localhost:3000"
+    callback_url = "http://localhost:5173"
     client_class = OAuth2Client
 
 
@@ -808,6 +813,8 @@ class MyCouponsView(ListAPIView):
 
 class PasswordResetRequestView(APIView):
     permission_classes = [AllowAny]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "password_reset"
 
     def get_client_ip(self, request):
         x_forwarded_for = request.META.get("HTTP_X_FORWARDED_FOR")
@@ -861,6 +868,8 @@ class PasswordResetRequestView(APIView):
 
 class PasswordResetConfirmView(APIView):
     permission_classes = [AllowAny]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "auth_burst"
 
     def post(self, request):
         serializer = PasswordResetConfirmSerializer(data=request.data)
