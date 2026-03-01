@@ -48,6 +48,7 @@ from .models import (
     ProductVariant,
     LoyaltyProfile,
     LoyaltyHistory,
+    PasswordResetCode,
 )
 from .serializers import (
     CustomerRegistrationSerializer,
@@ -71,13 +72,15 @@ from .serializers import (
     LoyaltyProfileSerializer,
     ConvertPointsSerializer,
     CouponSerializer,
+    PasswordResetRequestSerializer,
+    PasswordResetConfirmSerializer,
 )
 from .filters import ProductFilter, OrderFilter
 from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework.pagination import PageNumberPagination
 from .pagination import StandardResultsSetPagination
 from decimal import Decimal
-from core.tasks import send_order_confirmation_email
+from core.tasks import send_order_confirmation_email, send_password_reset_email
 
 
 class CustomerRegistrationView(APIView):
@@ -801,3 +804,103 @@ class MyCouponsView(ListAPIView):
 
     def get_queryset(self):
         return Coupon.objects.filter(owner=self.request.user).order_by("-valid_to")
+
+
+class PasswordResetRequestView(APIView):
+    permission_classes = [AllowAny]
+
+    def get_client_ip(self, request):
+        x_forwarded_for = request.META.get("HTTP_X_FORWARDED_FOR")
+        if x_forwarded_for:
+            ip = x_forwarded_for.split(",")[0]
+        else:
+            ip = request.META.get("REMOTE_ADDR")
+        return ip
+
+    def post(self, request):
+        serializer = PasswordResetRequestSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        email = serializer.validated_data["email"]
+        user = User.objects.filter(email=email).first()
+
+        if not user:
+            # Return success even if user not found to prevent email enumeration attacks
+            return Response(
+                {"message": "If an account exists, a code has been sent."},
+                status=status.HTTP_200_OK,
+            )
+
+        # Rate Limiting Logic
+        # Check how many codes generated for this user in the last 10 minutes
+        ten_minutes_ago = timezone.now() - timedelta(minutes=10)
+        recent_attempts = PasswordResetCode.objects.filter(
+            user=user, created_at__gte=ten_minutes_ago
+        ).count()
+
+        if recent_attempts >= 3:
+            return Response(
+                {"error": "Too many attempts. Please try again in 10 minutes."},
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
+
+        # Create Code
+        reset_code = PasswordResetCode.objects.create(
+            user=user, ip_address=self.get_client_ip(request)
+        )
+
+        # Send Email via Celery
+        send_password_reset_email.delay(reset_code.id)
+
+        return Response(
+            {"message": "If an account exists, a code has been sent."},
+            status=status.HTTP_200_OK,
+        )
+
+
+class PasswordResetConfirmView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        serializer = PasswordResetConfirmSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        email = serializer.validated_data["email"]
+        code = serializer.validated_data["code"]
+        new_password = serializer.validated_data["new_password"]
+
+        user = User.objects.filter(email=email).first()
+        if not user:
+            return Response(
+                {"error": "Invalid request."}, status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Verify Code
+        # We look for a valid, unused code matching user and input
+        reset_code_obj = PasswordResetCode.objects.filter(
+            user=user, code=code, is_used=False, expires_at__gt=timezone.now()
+        ).first()
+
+        if not reset_code_obj:
+            return Response(
+                {"error": "Invalid or expired code."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Reset Password
+        user.set_password(new_password)
+        user.save()
+
+        # Mark code as used
+        reset_code_obj.is_used = True
+        reset_code_obj.save()
+
+        # Optional: Invalidate all other active codes for this user for security
+        PasswordResetCode.objects.filter(user=user, is_used=False).update(is_used=True)
+
+        return Response(
+            {"message": "Password has been reset successfully."},
+            status=status.HTTP_200_OK,
+        )

@@ -7,6 +7,7 @@ from django.conf import settings
 from django.core.mail import EmailMultiAlternatives
 from django.template.loader import render_to_string
 from django.utils import timezone
+from .models import PasswordResetCode
 
 
 @shared_task(
@@ -109,3 +110,68 @@ def send_order_confirmation_email(self, order_db_id: int) -> str:
 @shared_task
 def ping():
     return "pong"
+
+
+@shared_task(
+    bind=True,
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    retry_kwargs={"max_retries": 3},
+)
+def send_password_reset_email(self, code_id: int):
+    try:
+        reset_code = PasswordResetCode.objects.select_related("user").get(id=code_id)
+        user = reset_code.user
+
+        support_email = (
+            getattr(settings, "DEFAULT_FROM_EMAIL", None) or settings.EMAIL_HOST_USER
+        )
+
+        context = {
+            "user_first_name": user.first_name or "Valued Client",
+            "code": reset_code.code,
+            "year": timezone.now().year,
+            "support_email": support_email,
+        }
+
+        subject = "LUNEA — Security Code"
+        html_body = render_to_string("auth/password_reset_code.html", context)
+
+        text_body = (
+            f"LUNEA — Password Reset\n\n"
+            f"Your security code is: {reset_code.code}\n\n"
+            f"This code will expire in 15 minutes.\n"
+            f"If you did not request this, please ignore this email."
+        )
+
+        from_email = (
+            getattr(settings, "DEFAULT_FROM_EMAIL", None) or settings.EMAIL_HOST_USER
+        )
+
+        msg = EmailMultiAlternatives(
+            subject=subject,
+            body=text_body,
+            from_email=from_email,
+            to=[user.email],
+        )
+        msg.attach_alternative(html_body, "text/html")
+
+        # Inline logo
+        logo_path = os.path.join(
+            settings.BASE_DIR.parent, "static", "assets", "LuneaLOGO.png"
+        )
+        if os.path.exists(logo_path):
+            with open(logo_path, "rb") as f:
+                img = MIMEImage(f.read())
+                img.add_header("Content-ID", "<lunea_logo>")
+                img.add_header(
+                    "Content-Disposition", "inline", filename="LuneaLOGO.png"
+                )
+                msg.mixed_subtype = "related"
+                msg.attach(img)
+
+        msg.send(fail_silently=False)
+        return f"Sent reset code to {user.email}"
+
+    except PasswordResetCode.DoesNotExist:
+        return "Reset code object not found"

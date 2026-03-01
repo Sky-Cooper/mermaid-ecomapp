@@ -6,6 +6,8 @@ from core.views import (
     CookieTokenRefreshView,
     LogoutView,
     GoogleLogin,  # Import the new view
+    PasswordResetRequestView,
+    PasswordResetConfirmView,
 )
 from django.conf import settings
 from django.conf.urls.static import static
@@ -17,6 +19,16 @@ urlpatterns = [
     path("auth/refresh/", CookieTokenRefreshView.as_view(), name="refresh"),
     path("auth/logout/", LogoutView.as_view(), name="logout"),
     path("auth/google/", GoogleLogin.as_view(), name="google_login"),
+    path(
+        "auth/password-reset/request/",
+        PasswordResetRequestView.as_view(),
+        name="password-reset-request",
+    ),
+    path(
+        "auth/password-reset/confirm/",
+        PasswordResetConfirmView.as_view(),
+        name="password-reset-confirm",
+    ),
     path("api/", include("core.urls")),
 ]
 

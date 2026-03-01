@@ -36,6 +36,8 @@ from .views import (
     LoyaltyDashboardView,
     ConvertPointsView,
     MyCouponsView,
+    PasswordResetConfirmView,
+    PasswordResetRequestView,
 )
 
 # 1. Setup Router for ViewSets

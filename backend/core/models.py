@@ -16,6 +16,9 @@ from django.contrib.auth.models import (
 )
 from decimal import Decimal, ROUND_HALF_UP
 from .helpers import unique_slugify
+import random
+from datetime import timedelta
+from django.conf import settings
 
 
 class LanguageChoices(models.TextChoices):
@@ -657,3 +660,29 @@ class Notification(models.Model):
 
     def __str__(self):
         return f"{self.user.email} - {self.title}"
+
+
+class PasswordResetCode(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="reset_codes")
+    code = models.CharField(max_length=6)
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+    is_used = models.BooleanField(default=False)
+
+    # Rate limiting fields
+    ip_address = models.GenericIPAddressField(null=True, blank=True)
+
+    def save(self, *args, **kwargs):
+        if not self.code:
+            # Generate a 6-digit code
+            self.code = str(random.randint(100000, 999999))
+        if not self.expires_at:
+            # Code valid for 15 minutes
+            self.expires_at = timezone.now() + timedelta(minutes=15)
+        super().save(*args, **kwargs)
+
+    def is_valid(self):
+        return not self.is_used and timezone.now() < self.expires_at
+
+    def __str__(self):
+        return f"{self.user.email} - {self.code}"

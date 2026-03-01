@@ -23,6 +23,7 @@ from .models import (
     Notification,
     LoyaltyHistory,
     LoyaltyProfile,
+    PasswordResetCode,
 )
 
 # ==========================================
@@ -493,3 +494,26 @@ class CouponSerializer(serializers.ModelSerializer):
 
     def get_is_valid(self, obj):
         return obj.is_valid()
+
+
+class PasswordResetRequestSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+
+    def validate_email(self, value):
+        # We generally don't want to reveal if a user exists or not for security,
+        # but for this logic we need to know internally.
+        return value
+
+
+class PasswordResetConfirmSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    code = serializers.CharField(min_length=6, max_length=6)
+    new_password = serializers.CharField(min_length=8, write_only=True)
+    confirm_password = serializers.CharField(min_length=8, write_only=True)
+
+    def validate(self, attrs):
+        if attrs["new_password"] != attrs["confirm_password"]:
+            raise serializers.ValidationError(
+                {"new_password": "Passwords do not match."}
+            )
+        return attrs

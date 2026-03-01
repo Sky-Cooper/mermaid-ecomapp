@@ -53,3 +53,18 @@ db.sqlite3-journal
 Thumbs.db
 Desktop.ini
 .DS_Store
+
+
+# Python
+**/__pycache__/
+**/*.py[cod]
+**/*.pyc
+
+# Docker/Environment
+.env
+.env.*
+
+# Django specific
+backend/static/
+backend/media/
+backend/staticfiles/
