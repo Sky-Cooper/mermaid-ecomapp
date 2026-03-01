@@ -397,6 +397,52 @@ class Product(models.Model):
         return self.title
 
 
+# ... (keep all your existing imports and models)
+
+# ==========================================
+# 8. INTERNAL PRODUCT DETAILS (ADMIN ONLY)
+# ==========================================
+
+
+class ProductSupplierInfo(models.Model):
+    """
+    Internal model to track granular details about the product source.
+    Not exposed via API.
+    """
+
+    product = models.OneToOneField(
+        Product, on_delete=models.CASCADE, related_name="supplier_info"
+    )
+    supplier_name = models.CharField(max_length=255)
+    supplier_email = models.EmailField(blank=True, null=True)
+    supplier_phone = models.CharField(max_length=50, blank=True, null=True)
+    supplier_address = models.TextField(blank=True, null=True)
+
+    # Cost Tracking
+    cost_price = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        help_text="Cost per unit (Not visible to customers)",
+    )
+
+    # Logistics
+    batch_number = models.CharField(max_length=100, blank=True, null=True)
+    purchase_date = models.DateField(null=True, blank=True)
+    warehouse_location = models.CharField(
+        max_length=100, blank=True, null=True, help_text="e.g., Aisle 4, Shelf B"
+    )
+
+    notes = models.TextField(
+        blank=True, null=True, help_text="Internal remarks about quality, defects, etc."
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"Supplier Info for {self.product.title}"
+
+
 class ProductImage(models.Model):
     product = models.ForeignKey(
         Product, on_delete=models.CASCADE, related_name="images"

@@ -23,8 +23,9 @@ from .models import (
     Order,
     OrderItem,
     Notification,
-    LoyaltyProfile,  # <--- Added
-    LoyaltyHistory,  # <--- Added
+    LoyaltyProfile,
+    LoyaltyHistory,
+    ProductSupplierInfo,  # <--- IMPORT THE NEW MODEL
 )
 
 # ==========================================
@@ -102,7 +103,7 @@ class AttributeValueAdmin(admin.ModelAdmin):
 
 
 # ==========================================
-# 3. LOYALTY SYSTEM ADMIN (NEW)
+# 3. LOYALTY SYSTEM ADMIN
 # ==========================================
 
 
@@ -152,7 +153,6 @@ class LoyaltyProfileInline(admin.StackedInline):
     readonly_fields = ("points", "tier")
 
 
-# admin.py
 @admin.register(User)
 class UserAdmin(BaseUserAdmin, ImagePreviewMixin):
     ordering = ["email"]
@@ -176,9 +176,6 @@ class UserAdmin(BaseUserAdmin, ImagePreviewMixin):
     )
 
     inlines = [ShippingAddressInline, LoyaltyProfileInline]
-
-
-# Added Loyalty inline
 
 
 @admin.register(StoreProfile)
@@ -228,20 +225,61 @@ class ProductVariantInline(admin.TabularInline):
     autocomplete_fields = ["size"]
 
 
+# --- NEW INLINE FOR SUPPLIER INFO ---
+class ProductSupplierInfoInline(admin.StackedInline):
+    model = ProductSupplierInfo
+    extra = 0  # No extra blank forms unless clicked
+    can_delete = True
+    verbose_name = "Internal Supplier Detail"
+    verbose_name_plural = "Internal Supplier Details"
+    classes = ["collapse"]  # Keeps it hidden until clicked to save space
+
+    fieldsets = (
+        (
+            "Supplier Identity",
+            {
+                "fields": (
+                    ("supplier_name", "supplier_phone"),
+                    "supplier_email",
+                    "supplier_address",
+                )
+            },
+        ),
+        (
+            "Logistics & Cost",
+            {
+                "fields": (
+                    ("cost_price", "purchase_date"),
+                    ("batch_number", "warehouse_location"),
+                )
+            },
+        ),
+        ("Remarks", {"fields": ("notes",)}),
+    )
+
+
 @admin.register(Product)
 class ProductAdmin(admin.ModelAdmin, ImagePreviewMixin, JSONPrettyMixin):
     list_display = (
         "title",
         "sku",
         "price",
+        "get_cost_price",  # <--- Added custom column
         "in_stock",
         "is_active",
         "get_image_preview",
     )
     list_filter = ("is_active", "in_stock", "sub_category__category")
-    search_fields = ("title", "sku")
+    search_fields = (
+        "title",
+        "sku",
+        "supplier_info__supplier_name",
+    )  # <--- Search by supplier too
     prepopulated_fields = {"slug": ("title",)}
-    inlines = [ProductImageInline, ProductVariantInline]
+
+    # Add the new inline here
+    inlines = [ProductImageInline, ProductVariantInline, ProductSupplierInfoInline]
+
     actions = ["mark_active", "mark_inactive"]
 
     readonly_fields = ("get_specs_html", "created_at", "updated_at")
@@ -265,7 +303,19 @@ class ProductAdmin(admin.ModelAdmin, ImagePreviewMixin, JSONPrettyMixin):
     )
 
     def get_queryset(self, request):
-        return super().get_queryset(request).select_related("sub_category")
+        # Prefetch supplier info to avoid N+1 queries in the list view
+        return (
+            super()
+            .get_queryset(request)
+            .select_related("sub_category", "supplier_info")
+        )
+
+    @admin.display(description="Cost Price", empty_value="-")
+    def get_cost_price(self, obj):
+        # Safely access the related OneToOne field
+        if hasattr(obj, "supplier_info") and obj.supplier_info:
+            return f"{obj.supplier_info.cost_price} DH"
+        return "-"
 
     @admin.action(description="Mark selected products as Active")
     def mark_active(self, request, queryset):
@@ -319,7 +369,7 @@ class OrderAdmin(admin.ModelAdmin):
                 "fields": (
                     "shipping_address",
                     "shipping_city",
-                    "shipping_fee",  # <--- Added to view
+                    "shipping_fee",
                     "shipping_phone",
                     "tracking_number",
                 )
